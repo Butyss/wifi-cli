@@ -50,6 +50,14 @@ WifiTUI::~WifiTUI() {
         connect_thread_.join();
     }
     
+    {
+        std::lock_guard<std::mutex> lock(scan_mutex_);
+        scan_running_ = false;
+    }
+    if (scan_thread_.joinable()) {
+        scan_thread_.join();
+    }
+    
     stop();
 }
 
@@ -86,20 +94,24 @@ void WifiTUI::run() {
     running_ = true;
     
     status_message_ = "Escaneando...";
-    status_msg_frames_ = 10;
+    status_msg_frames_ = 30;
     
-    networks_ = wm_.scan();
-    if (networks_.empty()) {
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        networks_ = wm_.scan();
-    }
-    previous_networks_ = networks_;
-    last_scan_time_ = std::chrono::steady_clock::now();
-    last_status_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(10);
     cached_status_ = wm_.get_status();
+    last_status_time_ = std::chrono::steady_clock::now();
     last_ping_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(15);
     cached_ping_ = -1;
     connecting_frames_ = 0;
+    
+    scan_thread_ = std::thread([this]() {
+        auto result = wm_.scan();
+        {
+            std::lock_guard<std::mutex> lock(scan_mutex_);
+            scan_result_ = std::move(result);
+            scan_dirty_ = true;
+        }
+        status_message_ = "";
+        status_msg_frames_ = 0;
+    });
     
     timeout(100);
     

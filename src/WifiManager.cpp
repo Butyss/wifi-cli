@@ -228,19 +228,6 @@ ConnectionStatus WifiManager::get_status() {
     if (!connected_name.empty()) {
         status.state = ConnectionState::COMPLETED;
         status.ssid = connected_name;
-        
-        auto aps = nm_client_->get_access_points(false);
-        for (const auto& ap : aps) {
-            std::string ap_ssid = ap.ssid;
-            while (!ap_ssid.empty() && ap_ssid.back() == ' ') {
-                ap_ssid.pop_back();
-            }
-            if (connected_name == ap_ssid) {
-                status.signal = ap.strength;
-                status.bssid = ap.bssid;
-                break;
-            }
-        }
     } else {
         status.state = ConnectionState::DISCONNECTED;
     }
