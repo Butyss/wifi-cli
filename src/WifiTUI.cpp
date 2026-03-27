@@ -18,6 +18,8 @@ WifiTUI::WifiTUI()
     , status_message_()
     , status_msg_frames_(0)
     , connecting_frames_(0)
+    , connecting_(false)
+    , connect_success_(false)
     , margin_left_(2)
     , margin_right_(2)
     , margin_top_(2)
@@ -33,6 +35,15 @@ WifiTUI::WifiTUI()
 }
 
 WifiTUI::~WifiTUI() {
+    {
+        std::lock_guard<std::mutex> lock(connect_mutex_);
+        if (connecting_) {
+            running_ = false;
+        }
+    }
+    if (connect_thread_.joinable()) {
+        connect_thread_.join();
+    }
     stop();
 }
 
@@ -525,22 +536,57 @@ TUIEvent WifiTUI::handle_input(int ch) {
                 state_ = TUIState::NETWORKS_LIST;
             }
             break;
-        
-        case TUIState::CONNECTING:
+
+        case TUIState::CONNECTING: {
+            if (connect_thread_.joinable()) {
+                connect_thread_.join();
+            }
+            
+            std::lock_guard<std::mutex> lock(connect_mutex_);
+            if (connect_success_) {
+                status_message_ = "Conectado";
+                status_msg_frames_ = 20;
+            } else {
+                std::string error = wm_.get_last_error();
+                if (!error.empty()) {
+                    status_message_ = error;
+                } else {
+                    status_message_ = "Error al conectar";
+                }
+                status_msg_frames_ = 30;
+            }
+            state_ = TUIState::NETWORKS_LIST;
+            networks_ = wm_.scan();
             break;
+        }
 
         case TUIState::PASSWORD_INPUT: {
             if (ch == 27) { // ESC
                 state_ = TUIState::NETWORKS_LIST;
                 password_input_.clear();
             } else if (ch == '\n' || ch == KEY_ENTER) {
-                ConnectionConfig config;
-                config.ssid = pending_network_.ssid;
-                config.password = password_input_;
-                config.security_type = pending_network_.security_types[0];
-                config.is_enterprise = false;
-                wm_.connect(config);
+                if (connect_thread_.joinable()) {
+                    connect_thread_.join();
+                }
+                
+                pending_config_.ssid = pending_network_.ssid;
+                pending_config_.password = password_input_;
+                pending_config_.security_type = pending_network_.security_types[0];
+                pending_config_.is_enterprise = false;
+                
+                connecting_ = true;
+                connect_success_ = false;
+                wm_.clear_error();
+                
+                connect_thread_ = std::thread([this]() {
+                    auto result = wm_.connect(pending_config_);
+                    std::lock_guard<std::mutex> lock(connect_mutex_);
+                    connect_success_ = result.has_value();
+                    connecting_ = false;
+                });
+                
                 state_ = TUIState::CONNECTING;
+                connecting_frames_ = 0;
                 password_input_.clear();
             } else if (ch == KEY_BACKSPACE || ch == 127) {
                 if (!password_input_.empty()) {

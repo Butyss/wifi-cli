@@ -30,6 +30,8 @@ public:
     std::string get_current_connection_name();
     int get_ping();
     std::string get_password(const std::string& network_id);
+    std::string get_last_error() const { return last_error_; }
+    void clear_error() { last_error_.clear(); }
 
     bool is_connected_to_nm() const { return nm_client_ && nm_client_->init(); }
 
@@ -41,6 +43,7 @@ private:
 
     bool initialized_;
     std::unique_ptr<NmCli::NmClient> nm_client_;
+    std::string last_error_;
 };
 
 #endif

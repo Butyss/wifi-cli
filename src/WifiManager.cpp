@@ -100,11 +100,21 @@ std::vector<SavedNetwork> WifiManager::list_networks() {
 }
 
 std::optional<int> WifiManager::connect(const ConnectionConfig& config) {
+    last_error_.clear();
+    
     if (config.password.empty()) {
-        return nm_client_->connect(config.ssid) ? std::make_optional(0) : std::nullopt;
+        if (nm_client_->connect(config.ssid)) {
+            return std::make_optional(0);
+        } else {
+            last_error_ = "Error al conectar";
+            return std::nullopt;
+        }
     } else {
-        return nm_client_->connect_with_password(config.ssid, config.password)
-            ? std::make_optional(0) : std::nullopt;
+        bool success = nm_client_->connect_with_password(config.ssid, config.password);
+        if (!success) {
+            last_error_ = "Clave incorrecta";
+        }
+        return success ? std::make_optional(0) : std::nullopt;
     }
 }
 

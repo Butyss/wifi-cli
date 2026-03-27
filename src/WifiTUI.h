@@ -7,6 +7,8 @@
 #include <vector>
 #include <functional>
 #include <chrono>
+#include <thread>
+#include <mutex>
 
 enum class TUIState {
     NETWORKS_LIST,
@@ -89,6 +91,11 @@ private:
     int status_msg_frames_;
     
     int connecting_frames_;
+    bool connecting_;
+    bool connect_success_;
+    ConnectionConfig pending_config_;
+    std::mutex connect_mutex_;
+    std::thread connect_thread_;
     
     int margin_left_;
     int margin_right_;

@@ -325,21 +325,49 @@ bool NmClient::connect_with_password(const std::string& ssid, const std::string&
     auto aps = get_access_points(false);
     for (const auto& ap : aps) {
         if (ap.ssid == ssid) {
-            if (fork() == 0) {
-                if (fork() == 0) {
-                    int fd = open("/dev/null", O_RDWR);
-                    dup2(fd, STDOUT_FILENO);
-                    dup2(fd, STDERR_FILENO);
-                    if (fd > 2) close(fd);
-                    setsid();
-                    execlp("nmcli", "nmcli", "d", "wifi", "connect", ssid.c_str(), 
-                           "password", password.c_str(), "ifname", "wlan0", (char*)nullptr);
-                    _exit(1);
+            int pipefd[2];
+            if (pipe(pipefd) == -1) return false;
+            
+            pid_t pid = fork();
+            if (pid == 0) {
+                close(pipefd[0]);
+                int fd = open("/dev/null", O_RDWR);
+                dup2(fd, STDOUT_FILENO);
+                if (fd > 2) close(fd);
+                dup2(pipefd[1], STDERR_FILENO);
+                close(pipefd[1]);
+                
+                execlp("nmcli", "nmcli", "-t", "device", "wifi", "connect", 
+                       ssid.c_str(), "password", password.c_str(), "ifname", "wlan0", (char*)nullptr);
+                _exit(1);
+            } else if (pid > 0) {
+                close(pipefd[1]);
+                
+                char buffer[256];
+                std::string error_output;
+                ssize_t n;
+                while ((n = read(pipefd[0], buffer, sizeof(buffer) - 1)) > 0) {
+                    buffer[n] = '\0';
+                    error_output += buffer;
                 }
-                _exit(0);
+                close(pipefd[0]);
+                
+                int status;
+                pid_t result = waitpid(pid, &status, 0);
+                
+                if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+                    return true;
+                }
+                
+                if (!error_output.empty() && 
+                    (error_output.find("invalid") != std::string::npos || 
+                     error_output.find("incorrect") != std::string::npos ||
+                     error_output.find("Error") != std::string::npos)) {
+                    return false;
+                }
+                return false;
             }
-            wait(nullptr);
-            return true;
+            return false;
         }
     }
     return false;
