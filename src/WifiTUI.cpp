@@ -2,6 +2,7 @@
 #include <ncurses.h>
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 
 WifiTUI::WifiTUI()
     : wm_(WifiManager::get_instance())
@@ -23,6 +24,7 @@ WifiTUI::WifiTUI()
     , margin_bottom_(2)
     , cached_ping_(-1)
     , last_ping_time_(std::chrono::steady_clock::now())
+    , qr_data_()
 {
     config_.auto_scan = true;
     config_.scan_interval_ms = 7000;
@@ -369,7 +371,7 @@ void WifiTUI::render_network_info() {
     mvprintw(start_y + 6, start_x + 2, "Seguridad: %s", info_network_.get_security_string().c_str());
     
     attron(A_DIM);
-    mvprintw(start_y + box_height - 2, start_x + 2, "Q/I: Cerrar");
+    mvprintw(start_y + box_height - 2, start_x + 2, "Q/I: Cerrar  S:QR");
     attroff(A_DIM);
 }
 
@@ -499,7 +501,24 @@ TUIEvent WifiTUI::handle_input(int ch) {
         }
         
         case TUIState::NETWORK_INFO:
-            if (ch == 'i' || ch == 'I' || ch == 'q' || ch == 'Q') {
+            if (ch == 's' || ch == 'S') {
+                std::string security = info_network_.get_security_string();
+                
+                if (security == "Abierto") {
+                    qr_data_ = "WIFI:T:nopass;S:" + info_network_.ssid + ";;";
+                    render_qr_code();
+                } else if (!info_password_.empty()) {
+                    std::string sec_type = "WPA";
+                    if (security.find("WPA3") != std::string::npos) sec_type = "WPA3";
+                    else if (security.find("WPA2") != std::string::npos) sec_type = "WPA2";
+                    
+                    qr_data_ = "WIFI:T:" + sec_type + ";S:" + info_network_.ssid + ";P:" + info_password_ + ";;";
+                    render_qr_code();
+                } else {
+                    status_message_ = "Red no guardada";
+                    status_msg_frames_ = 20;
+                }
+            } else if (ch == 'i' || ch == 'I' || ch == 'q' || ch == 'Q') {
                 if (ch == 'q' || ch == 'Q') {
                     running_ = false;
                 }
@@ -619,4 +638,27 @@ int WifiTUI::get_visible_start() const {
 
 int WifiTUI::get_visible_end() const {
     return std::min(scroll_offset_ + get_max_rows(), (int)networks_.size());
+}
+
+void WifiTUI::render_qr_code() {
+    endwin();
+    
+    system("clear");
+    
+    printf("\n");
+    fflush(stdout);
+    system(("qrencode -t UTF8 -o - '" + qr_data_ + "'").c_str());
+    
+    printf("\n");
+    if (!info_password_.empty()) {
+        printf("  Password: %s\n", info_password_.c_str());
+    }
+    
+    printf("\n  [ Presiona ENTER para volver ]\n");
+    fflush(stdout);
+    getchar();
+    
+    refresh();
+    state_ = TUIState::NETWORKS_LIST;
+    qr_data_.clear();
 }

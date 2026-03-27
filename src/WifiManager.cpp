@@ -195,7 +195,26 @@ int WifiManager::get_ping() {
 
 std::string WifiManager::get_password(const std::string& network_id) {
     auto pwd = nm_client_->get_saved_password(network_id);
-    return pwd ? *pwd : "";
+    if (pwd && !pwd->empty()) {
+        return *pwd;
+    }
+    
+    FILE* fp = popen(("nmcli -s -g 802-11-wireless-security.psk connection show '" + network_id + "' 2>/dev/null").c_str(), "r");
+    if (!fp) return "";
+    
+    char buf[256];
+    if (fgets(buf, sizeof(buf), fp) != nullptr) {
+        pclose(fp);
+        std::string result = buf;
+        while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
+            result.pop_back();
+        }
+        if (!result.empty() && result != "--") {
+            return result;
+        }
+    }
+    pclose(fp);
+    return "";
 }
 
 Network WifiManager::ap_to_network(const NmCli::AccessPoint& ap) {

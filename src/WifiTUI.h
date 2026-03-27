@@ -49,6 +49,7 @@ private:
     void render_connecting();
     void render_error();
     void render_network_info();
+    void render_qr_code();
 
     TUIEvent handle_input(int ch);
     void handle_resize();
@@ -96,6 +97,8 @@ private:
     
     int cached_ping_;
     std::chrono::steady_clock::time_point last_ping_time_;
+    
+    std::string qr_data_;
 };
 
 #endif
