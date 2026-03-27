@@ -93,6 +93,9 @@ private:
     int margin_right_;
     int margin_top_;
     int margin_bottom_;
+    
+    int cached_ping_;
+    std::chrono::steady_clock::time_point last_ping_time_;
 };
 
 #endif

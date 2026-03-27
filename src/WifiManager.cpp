@@ -173,6 +173,26 @@ std::string WifiManager::get_current_connection_name() {
     return "";
 }
 
+int WifiManager::get_ping() {
+    FILE* fp = popen("ping -c 1 -W 1 8.8.8.8 2>/dev/null | grep -oP 'time=\\K[0-9]+'", "r");
+    if (!fp) return -1;
+    
+    char buf[32];
+    if (fgets(buf, sizeof(buf), fp) != nullptr) {
+        pclose(fp);
+        std::string output(buf);
+        output.erase(std::remove(output.begin(), output.end(), '\n'), output.end());
+        output.erase(std::remove(output.begin(), output.end(), '\r'), output.end());
+        try {
+            return std::stoi(output);
+        } catch (...) {
+            return -1;
+        }
+    }
+    pclose(fp);
+    return -1;
+}
+
 std::string WifiManager::get_password(const std::string& network_id) {
     auto pwd = nm_client_->get_saved_password(network_id);
     return pwd ? *pwd : "";

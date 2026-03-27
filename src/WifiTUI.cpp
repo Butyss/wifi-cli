@@ -21,6 +21,8 @@ WifiTUI::WifiTUI()
     , margin_right_(2)
     , margin_top_(2)
     , margin_bottom_(2)
+    , cached_ping_(-1)
+    , last_ping_time_(std::chrono::steady_clock::now())
 {
     config_.auto_scan = true;
     config_.scan_interval_ms = 7000;
@@ -160,11 +162,24 @@ void WifiTUI::render_header() {
     if (status.state == ConnectionState::COMPLETED) {
         attron(COLOR_PAIR(1));
         mvprintw(y, left + 8, "Conectado: %s", status.ssid.c_str());
+        
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_ping_time_).count();
+        
+        if (elapsed >= 4 || cached_ping_ < 0) {
+            cached_ping_ = wm_.get_ping();
+            last_ping_time_ = now;
+        }
+        
+        if (cached_ping_ >= 0) {
+            mvprintw(y, left + 19 + status.ssid.length(), " | %dms", cached_ping_);
+        }
         attroff(COLOR_PAIR(1));
     } else {
         attron(COLOR_PAIR(3));
         mvprintw(y, left + 8, "Desconectado");
         attroff(COLOR_PAIR(3));
+        cached_ping_ = -1;
     }
 }
 

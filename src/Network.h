@@ -73,6 +73,7 @@ struct ConnectionStatus {
     std::string ip_address;
     std::string security;
     int signal;
+    int ping;
     std::string raw;
 };
 
