@@ -9,18 +9,18 @@ std::string Network::get_security_string() const {
         switch (sec) {
             case SecurityType::OPEN: types.push_back("Open"); break;
             case SecurityType::WEP: types.push_back("WEP"); break;
-            case SecurityType::WPA_PSK: types.push_back("WPA-PSK"); break;
-            case SecurityType::WPA2_PSK: types.push_back("WPA2-PSK"); break;
-            case SecurityType::WPA3_SAE: types.push_back("WPA3-SAE"); break;
-            case SecurityType::WPA_WPA2_ENTERPRISE: types.push_back("WPA/WPA2-Enterprise"); break;
-            case SecurityType::WPA3_ENTERPRISE: types.push_back("WPA3-Enterprise"); break;
-            default: types.push_back("Unknown"); break;
+            case SecurityType::WPA_PSK: types.push_back("WPA"); break;
+            case SecurityType::WPA2_PSK: types.push_back("WPA2"); break;
+            case SecurityType::WPA3_SAE: types.push_back("WPA3"); break;
+            case SecurityType::WPA_WPA2_ENTERPRISE: types.push_back("WPA2E"); break;
+            case SecurityType::WPA3_ENTERPRISE: types.push_back("WPA3E"); break;
+            default: types.push_back("?"); break;
         }
     }
     
     std::string result;
     for (size_t i = 0; i < types.size(); ++i) {
-        if (i > 0) result += ", ";
+        if (i > 0) result += "/";
         result += types[i];
     }
     return result;

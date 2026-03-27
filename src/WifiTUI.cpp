@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <thread>
+#include <mutex>
 
 WifiTUI::WifiTUI()
     : wm_(WifiManager::get_instance())
@@ -27,9 +29,12 @@ WifiTUI::WifiTUI()
     , cached_ping_(-1)
     , last_ping_time_(std::chrono::steady_clock::now())
     , qr_data_()
+    , scan_running_(false)
+    , scan_dirty_(false)
+    , last_status_time_(std::chrono::steady_clock::now())
 {
     config_.auto_scan = true;
-    config_.scan_interval_ms = 7000;
+    config_.scan_interval_ms = 15000;
     config_.show_hidden = false;
     config_.color_output = true;
 }
@@ -44,6 +49,7 @@ WifiTUI::~WifiTUI() {
     if (connect_thread_.joinable()) {
         connect_thread_.join();
     }
+    
     stop();
 }
 
@@ -79,7 +85,15 @@ bool WifiTUI::init() {
 void WifiTUI::run() {
     running_ = true;
     
+    status_message_ = "Escaneando...";
+    status_msg_frames_ = 10;
+    
     networks_ = wm_.scan();
+    if (networks_.empty()) {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        networks_ = wm_.scan();
+    }
+    previous_networks_ = networks_;
     last_scan_time_ = std::chrono::steady_clock::now();
     connecting_frames_ = 0;
     
@@ -87,6 +101,23 @@ void WifiTUI::run() {
     
     int ch;
     while (running_) {
+        {
+            std::lock_guard<std::mutex> lock(scan_mutex_);
+            if (scan_dirty_) {
+                previous_networks_ = networks_;
+                networks_ = scan_result_;
+                scan_dirty_ = false;
+                last_scan_time_ = std::chrono::steady_clock::now();
+                
+                if (selected_index_ >= (int)networks_.size()) {
+                    selected_index_ = networks_.empty() ? 0 : networks_.size() - 1;
+                }
+                if (scroll_offset_ > selected_index_) {
+                    scroll_offset_ = std::max(0, selected_index_ - 2);
+                }
+            }
+        }
+        
         render();
         
         ch = getch();
@@ -101,7 +132,6 @@ void WifiTUI::run() {
         if (state_ == TUIState::CONNECTING) {
             connecting_frames_++;
             if (connecting_frames_ > 30) {
-                networks_ = wm_.scan();
                 state_ = TUIState::NETWORKS_LIST;
                 connecting_frames_ = 0;
             }
@@ -128,6 +158,8 @@ WifiTUIConfig WifiTUI::get_config() const {
 
 void WifiTUI::render() {
     erase();
+    
+    touchwin(stdscr);
     
     switch (state_) {
         case TUIState::NETWORKS_LIST:
@@ -171,15 +203,22 @@ void WifiTUI::render_header() {
     mvprintw(y, left + 2, "WiFi");
     attroff(COLOR_PAIR(1) | A_BOLD);
     
-    ConnectionStatus status = wm_.get_status();
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed_status = std::chrono::duration_cast<std::chrono::seconds>(now - last_status_time_).count();
+    
+    if (elapsed_status >= 5) {
+        cached_status_ = wm_.get_status();
+        last_status_time_ = now;
+    }
+    
+    ConnectionStatus status = cached_status_;
     if (status.state == ConnectionState::COMPLETED) {
         attron(COLOR_PAIR(1));
         mvprintw(y, left + 8, "Conectado: %s", status.ssid.c_str());
         
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_ping_time_).count();
+        auto elapsed_ping = std::chrono::duration_cast<std::chrono::seconds>(now - last_ping_time_).count();
         
-        if (elapsed >= 4 || cached_ping_ < 0) {
+        if (elapsed_ping >= 10 || cached_ping_ < 0) {
             cached_ping_ = wm_.get_ping();
             last_ping_time_ = now;
         }
@@ -202,23 +241,6 @@ void WifiTUI::render_networks() {
     
     render_header();
     
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_scan_time_).count();
-    
-    if (elapsed >= 7000) {
-        scan_msg_frames_ = 3;
-        last_scan_time_ = now;
-        wm_.trigger_scan();
-        networks_ = wm_.scan();
-    }
-    
-    if (scan_msg_frames_ > 0) {
-        attron(COLOR_PAIR(2) | A_DIM);
-        mvprintw(margin_top_, right - 12, "Escaneando...");
-        attroff(COLOR_PAIR(2) | A_DIM);
-        scan_msg_frames_--;
-    }
-    
     if (status_msg_frames_ > 0) {
         attron(COLOR_PAIR(2) | A_BOLD);
         mvprintw(screen_rows_ - margin_bottom_ - 2, left + 2, "%s", status_message_.c_str());
@@ -230,6 +252,14 @@ void WifiTUI::render_networks() {
     mvprintw(margin_top_ + 2, left + 2, "Redes:");
     attroff(COLOR_PAIR(4) | A_DIM);
     
+    int start_row = margin_top_ + 3;
+    int end_row = screen_rows_ - margin_bottom_ - 2;
+    
+    for (int y = start_row; y < end_row; y++) {
+        move(y, left);
+        clrtoeol();
+    }
+    
     if (networks_.empty()) {
         attron(A_DIM);
         mvprintw(screen_rows_ / 2, (left + right) / 2 - 8, "Buscando redes...");
@@ -238,7 +268,6 @@ void WifiTUI::render_networks() {
         return;
     }
     
-    int start_row = margin_top_ + 3;
     int visible_count = screen_rows_ - margin_top_ - margin_bottom_ - 4;
     
     for (int i = 0; i < visible_count && i < (int)networks_.size(); ++i) {
@@ -246,7 +275,8 @@ void WifiTUI::render_networks() {
         if (net_idx >= (int)networks_.size()) break;
         
         const Network& net = networks_[net_idx];
-        draw_network_row(net, start_row + i, net_idx == selected_index_);
+        bool is_active = is_network_active(net);
+        draw_network_row(net, start_row + i, net_idx == selected_index_, is_active);
     }
     
     render_border();
@@ -256,6 +286,9 @@ void WifiTUI::render_border() {
     int bar_row = screen_rows_ - margin_bottom_ - 1;
     int left = margin_left_;
     int right = screen_cols_ - margin_right_ - 1;
+    
+    move(bar_row, left);
+    clrtoeol();
     
     attron(COLOR_PAIR(4) | A_DIM);
     mvaddch(bar_row, left, '+');
@@ -441,12 +474,26 @@ TUIEvent WifiTUI::handle_input(int ch) {
                 }
                 
                 case 'r':
-                case 'R':
+                case 'R': {
+                    status_message_ = "Escaneando...";
+                    status_msg_frames_ = 50;
+                    render();
+                    refresh();
+                    std::this_thread::sleep_for(std::chrono::seconds(1));
+                    previous_networks_ = networks_;
+                    auto result = wm_.scan();
+                    networks_ = result;
                     last_scan_time_ = std::chrono::steady_clock::now();
-                    scan_msg_frames_ = 75;
-                    wm_.trigger_scan();
-                    networks_ = wm_.scan();
+                    status_message_ = "Escaneo completo";
+                    status_msg_frames_ = 20;
+                    if (selected_index_ >= (int)networks_.size()) {
+                        selected_index_ = networks_.empty() ? 0 : networks_.size() - 1;
+                    }
+                    if (scroll_offset_ > selected_index_) {
+                        scroll_offset_ = std::max(0, selected_index_ - 2);
+                    }
                     break;
+                }
                 
                 case 'i':
                 case 'I': {
@@ -492,7 +539,6 @@ TUIEvent WifiTUI::handle_input(int ch) {
                                     status_msg_frames_ = 20;
                                     
                                     wm_.trigger_scan();
-                                    networks_ = wm_.scan();
                                     
                                     selected_index_ = 0;
                                     scroll_offset_ = 0;
@@ -636,30 +682,41 @@ void WifiTUI::draw_signal_bars(int signal, int col) {
     attroff(COLOR_PAIR(2));
 }
 
-void WifiTUI::draw_network_row(const Network& net, int row, bool selected) {
+void WifiTUI::draw_network_row(const Network& net, int row, bool selected, bool is_active) {
     int left = margin_left_;
     int right = screen_cols_ - margin_right_ - 1;
+    
+    move(row, left);
+    clrtoeol();
     
     if (selected) {
         attron(A_REVERSE);
     }
     
+    if (!is_active) {
+        attron(A_DIM);
+    }
+    
     mvprintw(row, left + 2, "*>");
-    mvprintw(row, left + 6, "%s", truncate(net.ssid, 12).c_str());
+    mvprintw(row, left + 6, "%-12.12s", truncate(net.ssid, 12).c_str());
     
-    int ssid_end = left + 6 + truncate(net.ssid, 12).length();
-    int signal_col = ssid_end + 2;
+    int signal_col = left + 20;
     
-    draw_signal_bars(net.signal_strength, signal_col);
+    if (is_active) {
+        draw_signal_bars(net.signal_strength, signal_col);
+    } else {
+        attron(COLOR_PAIR(2) | A_DIM);
+        mvprintw(row, signal_col, "----");
+        attroff(COLOR_PAIR(2) | A_DIM);
+    }
     mvprintw(row, signal_col + 5, "%ddBm", net.signal_strength);
     
-    if (net.is_connected) {
-        mvprintw(row, right - 11, "[CONECTADO]");
-    } else {
-        int security_col = right - 10;
-        attron(COLOR_PAIR(4) | A_DIM);
-        mvprintw(row, security_col, "[%s]", net.get_security_string().c_str());
-        attroff(COLOR_PAIR(4) | A_DIM);
+    int security_col = right - 12;
+    std::string security_str = "[" + net.get_security_string() + "]";
+    mvprintw(row, security_col, "%-12s", security_str.c_str());
+    
+    if (!is_active) {
+        attroff(A_DIM);
     }
     
     if (selected) {
@@ -672,6 +729,22 @@ std::string WifiTUI::truncate(const std::string& str, size_t width) {
         return str;
     }
     return str.substr(0, width - 3) + "...";
+}
+
+bool WifiTUI::is_network_active(const Network& net) const {
+    for (const auto& current : previous_networks_) {
+        if (current.bssid == net.bssid && !current.bssid.empty()) {
+            return true;
+        }
+        std::string curr_ssid = current.ssid;
+        std::string net_ssid = net.ssid;
+        while (!curr_ssid.empty() && curr_ssid.back() == ' ') curr_ssid.pop_back();
+        while (!net_ssid.empty() && net_ssid.back() == ' ') net_ssid.pop_back();
+        if (curr_ssid == net_ssid) {
+            return true;
+        }
+    }
+    return false;
 }
 
 int WifiTUI::get_max_rows() const {

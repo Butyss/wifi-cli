@@ -6,6 +6,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <thread>
+#include <chrono>
 
 namespace NmCli {
 
@@ -214,12 +216,18 @@ std::vector<AccessPoint> NmClient::get_access_points(bool scan_first) {
         if (!init()) return result;
     }
 
-    if (scan_first) {
-        scan();
-    }
-
     auto dev = get_wifi_device();
     if (!dev) return result;
+
+    if (scan_first) {
+        scan();
+        
+        for (int i = 0; i < 10; i++) {
+            int scanning = get_int_property(NM_SERVICE, dev->path, NM_DEVICE_WIRELESS_IFACE, "Scanning");
+            if (scanning == 0) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        }
+    }
 
     auto ap_paths = get_object_paths(NM_SERVICE, dev->path, NM_DEVICE_WIRELESS_IFACE, "GetAccessPoints");
     if (ap_paths.empty()) return result;

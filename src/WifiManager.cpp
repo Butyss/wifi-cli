@@ -32,37 +32,128 @@ void WifiManager::cleanup() {
 }
 
 std::vector<Network> WifiManager::scan() {
+    return scan_nmcli();
+}
+
+std::vector<Network> WifiManager::scan_nmcli() {
     std::vector<Network> networks;
-
-    auto aps = nm_client_->get_access_points(true);
+    
     std::string connected_name = get_current_connection_name();
-
-    for (const auto& ap : aps) {
-        Network net = ap_to_network(ap);
-
-        std::string net_ssid = net.ssid;
-        while (!net_ssid.empty() && net_ssid.back() == ' ') {
-            net_ssid.pop_back();
+    
+    FILE* fp = popen("TERM=dumb nmcli -t device wifi list 2>/dev/null", "r");
+    if (!fp) return networks;
+    
+    char line[1024];
+    while (fgets(line, sizeof(line), fp)) {
+        std::string s = line;
+        if (s.back() == '\n') s.pop_back();
+        if (s.empty()) continue;
+        
+        if (s[0] == '*' || s[0] == ' ') s = s.substr(1);
+        
+        size_t mode_pos = s.find(":Infra:");
+        std::string mode = "Infra";
+        if (mode_pos == std::string::npos) {
+            mode_pos = s.find(":Ad-Hoc:");
+            mode = "Ad-Hoc";
         }
-
-        if (!connected_name.empty() && net_ssid == connected_name) {
+        if (mode_pos == std::string::npos) {
+            mode_pos = s.find(":Mesh:");
+            mode = "Mesh";
+        }
+        
+        if (mode_pos == std::string::npos) continue;
+        
+        std::string before_mode = s.substr(0, mode_pos);
+        
+        size_t last_colon_before_mode = before_mode.rfind(':');
+        if (last_colon_before_mode == std::string::npos) continue;
+        
+        std::string bssid = before_mode.substr(0, last_colon_before_mode);
+        std::string ssid = before_mode.substr(last_colon_before_mode + 1);
+        
+        std::string after_mode = s.substr(mode_pos + mode.length() + 2);
+        
+        std::vector<std::string> after_fields;
+        size_t pos = 0;
+        while ((pos = after_mode.find(':')) != std::string::npos && after_fields.size() < 6) {
+            after_fields.push_back(after_mode.substr(0, pos));
+            after_mode = after_mode.substr(pos + 1);
+        }
+        after_fields.push_back(after_mode);
+        
+        Network net;
+        net.bssid = bssid;
+        net.ssid = ssid;
+        
+        for (size_t i = 0; i < after_fields.size(); i++) {
+            std::string& f = after_fields[i];
+            
+            if (f.find("Mbit/s") != std::string::npos) continue;
+            
+            if (std::isdigit(f[0])) {
+                int val = std::atoi(f.c_str());
+                if (val > 0 && val <= 100) {
+                    net.signal_strength = -100 + (val * 50 / 100);
+                } else if (val > 1000) {
+                    net.frequency = val;
+                }
+            }
+            
+            if (f.find("WPA3") != std::string::npos) {
+                net.security_types = {SecurityType::WPA3_SAE, SecurityType::WPA2_PSK};
+            } else if (f.find("WPA2") != std::string::npos) {
+                net.security_types = {SecurityType::WPA2_PSK};
+            } else if (f.find("WPA") != std::string::npos) {
+                net.security_types = {SecurityType::WPA_PSK};
+            } else if (f.find("WEP") != std::string::npos) {
+                net.security_types = {SecurityType::WEP};
+            } else if (f == "Open" || f.empty()) {
+                if (net.security_types.empty()) {
+                    net.security_types = {SecurityType::OPEN};
+                }
+            }
+        }
+        
+        if (net.ssid.empty()) continue;
+        
+        while (!net.ssid.empty() && (net.ssid.back() == ' ' || net.ssid.back() == '\\')) {
+            net.ssid.pop_back();
+        }
+        
+        while (!net.ssid.empty() && net.ssid[0] == ' ') {
+            net.ssid = net.ssid.substr(1);
+        }
+        
+        if (net.signal_strength == 0) net.signal_strength = -100;
+        if (net.frequency == 0) net.frequency = 2400;
+        if (net.security_types.empty()) net.security_types = {SecurityType::OPEN};
+        
+        std::string normalized_ssid = net.ssid;
+        std::string normalized_conn = connected_name;
+        while (!normalized_ssid.empty() && normalized_ssid.back() == ' ') normalized_ssid.pop_back();
+        while (!normalized_conn.empty() && normalized_conn.back() == ' ') normalized_conn.pop_back();
+        if (!normalized_conn.empty() && normalized_ssid == normalized_conn) {
             net.is_connected = true;
             net.is_current = true;
         }
-
+        
         networks.push_back(net);
     }
-
+    
+    pclose(fp);
+    
     std::sort(networks.begin(), networks.end(),
               [](const Network& a, const Network& b) {
                   return a.signal_strength > b.signal_strength;
               });
-
+    
     return networks;
 }
 
 bool WifiManager::trigger_scan() {
-    return nm_client_->scan();
+    int result = system("nmcli device wifi rescan 2>/dev/null");
+    return result == 0;
 }
 
 std::vector<SavedNetwork> WifiManager::list_networks() {

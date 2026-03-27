@@ -57,8 +57,9 @@ private:
     void handle_resize();
 
     void draw_signal_bars(int signal, int col);
-    void draw_network_row(const Network& net, int row, bool selected);
+    void draw_network_row(const Network& net, int row, bool selected, bool is_active);
     std::string truncate(const std::string& str, size_t width);
+    bool is_network_active(const Network& net) const;
 
     int get_max_rows() const;
     int get_visible_start() const;
@@ -83,6 +84,7 @@ private:
     bool info_saved_;
     
     std::vector<Network> networks_;
+    std::vector<Network> previous_networks_;
     
     int scan_msg_frames_;
     std::chrono::steady_clock::time_point last_scan_time_;
@@ -96,6 +98,15 @@ private:
     ConnectionConfig pending_config_;
     std::mutex connect_mutex_;
     std::thread connect_thread_;
+    
+    std::thread scan_thread_;
+    std::mutex scan_mutex_;
+    bool scan_running_;
+    bool scan_dirty_;
+    std::vector<Network> scan_result_;
+    
+    ConnectionStatus cached_status_;
+    std::chrono::steady_clock::time_point last_status_time_;
     
     int margin_left_;
     int margin_right_;

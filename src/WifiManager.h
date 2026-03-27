@@ -18,6 +18,7 @@ public:
     void cleanup();
 
     std::vector<Network> scan();
+    std::vector<Network> scan_nmcli();
     bool trigger_scan();
 
     std::vector<SavedNetwork> list_networks();
