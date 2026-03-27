@@ -44,7 +44,7 @@ private:
     void render();
     void render_header();
     void render_networks();
-    void render_status_bar();
+    void render_border();
     void render_password_input();
     void render_connecting();
     void render_error();
@@ -53,7 +53,7 @@ private:
     TUIEvent handle_input(int ch);
     void handle_resize();
 
-    void draw_signal_bars(int signal);
+    void draw_signal_bars(int signal, int col);
     void draw_network_row(const Network& net, int row, bool selected);
     std::string truncate(const std::string& str, size_t width);
 
@@ -88,6 +88,11 @@ private:
     int status_msg_frames_;
     
     int connecting_frames_;
+    
+    int margin_left_;
+    int margin_right_;
+    int margin_top_;
+    int margin_bottom_;
 };
 
 #endif

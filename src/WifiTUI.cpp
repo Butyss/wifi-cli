@@ -17,6 +17,10 @@ WifiTUI::WifiTUI()
     , status_message_()
     , status_msg_frames_(0)
     , connecting_frames_(0)
+    , margin_left_(2)
+    , margin_right_(2)
+    , margin_top_(2)
+    , margin_bottom_(2)
 {
     config_.auto_scan = true;
     config_.scan_interval_ms = 7000;
@@ -136,34 +140,38 @@ void WifiTUI::render() {
 }
 
 void WifiTUI::render_header() {
-    attron(COLOR_PAIR(1) | A_BOLD);
-    mvprintw(0, 0, "[ WiFi CLI ]");
-    attroff(COLOR_PAIR(1) | A_BOLD);
+    int y = margin_top_;
+    int left = margin_left_;
+    int right = screen_cols_ - margin_right_ - 1;
     
-    ConnectionStatus status = wm_.get_status();
-    std::string status_str;
-
-    if (status.state == ConnectionState::COMPLETED) {
-        status_str = "Conectado: " + status.ssid;
-    } else {
-        status_str = "Desconectado";
-        attron(COLOR_PAIR(3));
-    }
-    
-    int status_pos = screen_cols_ - status_str.length() - 3;
-    if (status_pos > 0) {
-        mvprintw(0, status_pos, "[%s]", status_str.c_str());
-    }
-    attroff(COLOR_PAIR(1) | COLOR_PAIR(3));
-    
-    mvaddstr(1, 0, "+");
-    for (int i = 1; i < screen_cols_ - 1; i++) {
+    attron(COLOR_PAIR(4) | A_DIM);
+    mvaddch(y, left, '+');
+    for (int i = left + 1; i < right; i++) {
         addch('-');
     }
     addch('+');
+    attroff(COLOR_PAIR(4) | A_DIM);
+    
+    attron(COLOR_PAIR(1) | A_BOLD);
+    mvprintw(y, left + 2, "WiFi");
+    attroff(COLOR_PAIR(1) | A_BOLD);
+    
+    ConnectionStatus status = wm_.get_status();
+    if (status.state == ConnectionState::COMPLETED) {
+        attron(COLOR_PAIR(1));
+        mvprintw(y, left + 8, "Conectado: %s", status.ssid.c_str());
+        attroff(COLOR_PAIR(1));
+    } else {
+        attron(COLOR_PAIR(3));
+        mvprintw(y, left + 8, "Desconectado");
+        attroff(COLOR_PAIR(3));
+    }
 }
 
 void WifiTUI::render_networks() {
+    int left = margin_left_;
+    int right = screen_cols_ - margin_right_ - 1;
+    
     render_header();
     
     auto now = std::chrono::steady_clock::now();
@@ -177,52 +185,33 @@ void WifiTUI::render_networks() {
     }
     
     if (scan_msg_frames_ > 0) {
-        attron(COLOR_PAIR(2) | A_BOLD);
-        mvprintw(2, 35, " [Escaneando...] ");
-        attroff(COLOR_PAIR(2) | A_BOLD);
+        attron(COLOR_PAIR(2) | A_DIM);
+        mvprintw(margin_top_, right - 12, "Escaneando...");
+        attroff(COLOR_PAIR(2) | A_DIM);
         scan_msg_frames_--;
     }
     
     if (status_msg_frames_ > 0) {
-        int msg_len = status_message_.length() + 4;
-        int box_y = screen_rows_ / 2 - 1;
-        int box_x = screen_cols_ / 2 - msg_len / 2;
-        
-        attron(COLOR_PAIR(1));
-        mvaddch(box_y, box_x, '+');
-        for (int i = 1; i < msg_len - 1; i++) mvaddch(box_y, box_x + i, '-');
-        mvaddch(box_y, box_x + msg_len - 1, '+');
-        
-        for (int y = box_y + 1; y < box_y + 3; y++) {
-            mvaddch(y, box_x, '|');
-            for (int i = 1; i < msg_len - 1; i++) mvaddch(y, box_x + i, ' ');
-            mvaddch(y, box_x + msg_len - 1, '|');
-        }
-        
-        mvaddch(box_y + 3, box_x, '+');
-        for (int i = 1; i < msg_len - 1; i++) mvaddch(box_y + 3, box_x + i, '-');
-        mvaddch(box_y + 3, box_x + msg_len - 1, '+');
-        attroff(COLOR_PAIR(1));
-        
         attron(COLOR_PAIR(2) | A_BOLD);
-        mvprintw(box_y + 1, box_x + 2, "%s", status_message_.c_str());
+        mvprintw(screen_rows_ - margin_bottom_ - 2, left + 2, "%s", status_message_.c_str());
         attroff(COLOR_PAIR(2) | A_BOLD);
-        
         status_msg_frames_--;
     }
     
-    mvprintw(2, 2, "Redes disponibles:");
+    attron(COLOR_PAIR(4) | A_DIM);
+    mvprintw(margin_top_ + 2, left + 2, "Redes:");
+    attroff(COLOR_PAIR(4) | A_DIM);
     
     if (networks_.empty()) {
-        attron(A_BOLD);
-        mvprintw(screen_rows_ / 2, screen_cols_ / 2 - 10, "Buscando redes...");
-        attroff(A_BOLD);
-        render_status_bar();
+        attron(A_DIM);
+        mvprintw(screen_rows_ / 2, (left + right) / 2 - 8, "Buscando redes...");
+        attroff(A_DIM);
+        render_border();
         return;
     }
     
-    int start_row = 4;
-    int visible_count = screen_rows_ - 7;
+    int start_row = margin_top_ + 3;
+    int visible_count = screen_rows_ - margin_top_ - margin_bottom_ - 4;
     
     for (int i = 0; i < visible_count && i < (int)networks_.size(); ++i) {
         int net_idx = i + scroll_offset_;
@@ -232,63 +221,76 @@ void WifiTUI::render_networks() {
         draw_network_row(net, start_row + i, net_idx == selected_index_);
     }
     
-    render_status_bar();
+    render_border();
 }
 
-void WifiTUI::render_status_bar() {
-    int bar_row = screen_rows_ - 2;
+void WifiTUI::render_border() {
+    int bar_row = screen_rows_ - margin_bottom_ - 1;
+    int left = margin_left_;
+    int right = screen_cols_ - margin_right_ - 1;
     
-    mvaddstr(bar_row, 0, "+");
-    for (int i = 1; i < screen_cols_ - 1; i++) {
+    attron(COLOR_PAIR(4) | A_DIM);
+    mvaddch(bar_row, left, '+');
+    for (int i = left + 1; i < right; i++) {
         addch('-');
     }
     addch('+');
+    attroff(COLOR_PAIR(4) | A_DIM);
     
-    attron(A_REVERSE);
-    mvprintw(bar_row, 2, "ENTER");
-    mvprintw(bar_row, 9, "R:Escanear");
-    mvprintw(bar_row, 23, "I:Info");
-    mvprintw(bar_row, 33, "F:Forget");
-    mvprintw(bar_row, 45, "Q:Salir");
-    mvprintw(bar_row, screen_cols_ - 12, "UP/DOWN");
-    attroff(A_REVERSE);
+    attron(A_DIM);
+    mvprintw(bar_row, left + 2, "ENTER:Conectar  R:Escanear  F:Olvidar  I:Info  Q:Salir");
+    attroff(A_DIM);
 }
 
 void WifiTUI::render_password_input() {
+    int left = margin_left_;
+    int center_y = (screen_rows_ - margin_top_ - margin_bottom_) / 2 + margin_top_;
+    
     render_header();
     
-    mvprintw(screen_rows_ / 2 - 2, 2, "Conectar a: %s", pending_network_.ssid.c_str());
-    mvprintw(screen_rows_ / 2, 2, "Contrasena: %s", std::string(password_input_.length(), '*').c_str());
-    mvprintw(screen_rows_ / 2 + 1, 2, "Presiona ENTER para conectar, ESC para cancelar");
+    mvprintw(center_y - 1, left + 2, "Conectar a: %s", pending_network_.ssid.c_str());
+    mvprintw(center_y, left + 2, "Contrasena: %s", std::string(password_input_.length(), '*').c_str());
+    mvprintw(center_y + 1, left + 2, "ENTER:Conectar  ESC:Cancelar");
     
-    render_status_bar();
+    render_border();
 }
 
 void WifiTUI::render_connecting() {
+    int left = margin_left_;
+    int center_y = (screen_rows_ - margin_top_ - margin_bottom_) / 2 + margin_top_;
+    
     render_header();
     
-    attron(A_BOLD);
-    mvprintw(screen_rows_ / 2, screen_cols_ / 2 - 10, "Conectando...");
-    attroff(A_BOLD);
+    attron(COLOR_PAIR(2) | A_DIM);
+    mvprintw(center_y, (left + screen_cols_ - margin_right_) / 2 - 5, "Conectando...");
+    attroff(COLOR_PAIR(2) | A_DIM);
     
-    render_status_bar();
+    render_border();
 }
 
 void WifiTUI::render_error() {
+    int left = margin_left_;
+    int right = screen_cols_ - margin_right_ - 1;
+    int center_y = (screen_rows_ - margin_top_ - margin_bottom_) / 2 + margin_top_;
+    
     attron(COLOR_PAIR(3) | A_BOLD);
-    mvprintw(screen_rows_ / 2 - 1, screen_cols_ / 2 - error_message_.length() / 2, "%s", error_message_.c_str());
+    mvprintw(center_y - 1, (left + right) / 2 - error_message_.length() / 2, "%s", error_message_.c_str());
     attroff(COLOR_PAIR(3) | A_BOLD);
     
-    attron(A_REVERSE);
-    mvprintw(screen_rows_ / 2 + 1, screen_cols_ / 2 - 20, "Presiona cualquier tecla para continuar...");
-    attroff(A_REVERSE);
+    attron(A_DIM);
+    mvprintw(center_y + 1, (left + right) / 2 - 18, "Presiona cualquier tecla...");
+    attroff(A_DIM);
 }
 
 void WifiTUI::render_network_info() {
-    int box_width = 45;
-    int box_height = 11;
-    int start_y = (screen_rows_ - box_height) / 2;
-    int start_x = (screen_cols_ - box_width) / 2;
+    int left = margin_left_;
+    int right = screen_cols_ - margin_right_ - 1;
+    int content_width = right - left - 1;
+    
+    int box_width = std::min(40, content_width - 4);
+    int box_height = 10;
+    int start_y = (screen_rows_ - margin_top_ - margin_bottom_ - box_height) / 2 + margin_top_;
+    int start_x = (left + right - box_width) / 2;
     
     attron(COLOR_PAIR(5));
     for (int y = start_y; y < start_y + box_height; y++) {
@@ -311,7 +313,7 @@ void WifiTUI::render_network_info() {
     }
     
     attron(A_BOLD);
-    mvprintw(start_y, start_x + 2, "[ Informacion de Red ]");
+    mvprintw(start_y, start_x + 2, "Info de Red");
     attroff(A_BOLD);
     
     mvprintw(start_y + 2, start_x + 2, "SSID: %s", info_network_.ssid.c_str());
@@ -320,11 +322,6 @@ void WifiTUI::render_network_info() {
     mvprintw(start_y + 5, start_x + 2, "Frecuencia: %d MHz", info_network_.frequency);
     mvprintw(start_y + 6, start_x + 2, "Seguridad: %s", info_network_.get_security_string().c_str());
     mvprintw(start_y + 7, start_x + 2, "Guardada: %s", info_saved_ ? "Si" : "No");
-    if (info_saved_ && !info_password_.empty()) {
-        attron(A_BOLD);
-        mvprintw(start_y + 8, start_x + 2, "Password: %s", info_password_.c_str());
-        attroff(A_BOLD);
-    }
     
     attroff(COLOR_PAIR(5));
     
@@ -512,13 +509,14 @@ void WifiTUI::handle_resize() {
     }
 }
 
-void WifiTUI::draw_signal_bars(int signal) {
+void WifiTUI::draw_signal_bars(int signal, int col) {
     int bars = 0;
     if (signal >= -50) bars = 4;
     else if (signal >= -60) bars = 3;
     else if (signal >= -70) bars = 2;
     else if (signal >= -80) bars = 1;
     
+    move(getcury(stdscr), col);
     attron(COLOR_PAIR(2));
     for (int i = 0; i < 4; ++i) {
         if (i < bars) {
@@ -531,26 +529,29 @@ void WifiTUI::draw_signal_bars(int signal) {
 }
 
 void WifiTUI::draw_network_row(const Network& net, int row, bool selected) {
+    int left = margin_left_;
+    int right = screen_cols_ - margin_right_ - 1;
+    
     if (selected) {
         attron(A_REVERSE);
     }
     
-    mvprintw(row, 2, "*>");
-    mvprintw(row, 6, "%s", truncate(net.ssid, 15).c_str());
+    mvprintw(row, left + 2, "*>");
+    mvprintw(row, left + 6, "%s", truncate(net.ssid, 12).c_str());
     
-    int bar_col = 26;
-    draw_signal_bars(net.signal_strength);
+    int ssid_end = left + 6 + truncate(net.ssid, 12).length();
+    int signal_col = ssid_end + 2;
     
-    mvprintw(row, bar_col + 5, "%d dBm", net.signal_strength);
-    
-    attron(COLOR_PAIR(4));
-    mvprintw(row, bar_col + 15, "[%s]", net.get_security_string().c_str());
-    attroff(COLOR_PAIR(4));
+    draw_signal_bars(net.signal_strength, signal_col);
+    mvprintw(row, signal_col + 5, "%ddBm", net.signal_strength);
     
     if (net.is_connected) {
-        attron(COLOR_PAIR(1));
-        mvprintw(row, screen_cols_ - 12, "[CONECTADO]");
-        attroff(COLOR_PAIR(1));
+        mvprintw(row, right - 11, "[CONECTADO]");
+    } else {
+        int security_col = right - 10;
+        attron(COLOR_PAIR(4) | A_DIM);
+        mvprintw(row, security_col, "[%s]", net.get_security_string().c_str());
+        attroff(COLOR_PAIR(4) | A_DIM);
     }
     
     if (selected) {
