@@ -14,6 +14,8 @@ WifiTUI::WifiTUI()
     , running_(false)
     , scan_msg_frames_(0)
     , last_scan_time_(std::chrono::steady_clock::now())
+    , status_message_()
+    , status_msg_frames_(0)
 {
     config_.auto_scan = true;
     config_.scan_interval_ms = 7000;
@@ -166,6 +168,13 @@ void WifiTUI::render_networks() {
         mvprintw(2, 35, " [Escaneando...] ");
         attroff(COLOR_PAIR(2) | A_BOLD);
         scan_msg_frames_--;
+    }
+    
+    if (status_msg_frames_ > 0) {
+        attron(COLOR_PAIR(3) | A_BOLD);
+        mvprintw(screen_rows_ / 2, screen_cols_ / 2 - status_message_.length() / 2, "%s", status_message_.c_str());
+        attroff(COLOR_PAIR(3) | A_BOLD);
+        status_msg_frames_--;
     }
     
     mvprintw(2, 2, "Redes disponibles:");
@@ -391,7 +400,12 @@ TUIEvent WifiTUI::handle_input(int ch) {
                             while (!target_ssid.empty() && target_ssid.back() == ' ') target_ssid.pop_back();
                             
                             if (saved_ssid == target_ssid) {
-                                system(("nmcli connection delete '" + s.id + "'").c_str());
+                                if (wm_.remove_network(s.id)) {
+                                    status_message_ = "[ Red Olvidada ]";
+                                    status_msg_frames_ = 20;
+                                    last_scan_time_ = std::chrono::steady_clock::now();
+                                    networks_ = wm_.scan();
+                                }
                                 break;
                             }
                         }

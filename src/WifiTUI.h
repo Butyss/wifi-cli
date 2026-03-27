@@ -83,6 +83,9 @@ private:
     
     int scan_msg_frames_;
     std::chrono::steady_clock::time_point last_scan_time_;
+    
+    std::string status_message_;
+    int status_msg_frames_;
 };
 
 #endif
