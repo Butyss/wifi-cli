@@ -244,26 +244,62 @@ void WifiTUI::render_border() {
 
 void WifiTUI::render_password_input() {
     int left = margin_left_;
+    int right = screen_cols_ - margin_right_ - 1;
     int center_y = (screen_rows_ - margin_top_ - margin_bottom_) / 2 + margin_top_;
     
     render_header();
     
-    mvprintw(center_y - 1, left + 2, "Conectar a: %s", pending_network_.ssid.c_str());
-    mvprintw(center_y, left + 2, "Contrasena: %s", std::string(password_input_.length(), '*').c_str());
-    mvprintw(center_y + 1, left + 2, "ENTER:Conectar  ESC:Cancelar");
+    int box_width = 40;
+    int box_start = (left + right - box_width) / 2;
+    
+    attron(COLOR_PAIR(4) | A_DIM);
+    mvprintw(center_y - 2, box_start, "+%s+", std::string(box_width - 2, '-').c_str());
+    for (int y = center_y - 1; y <= center_y + 2; y++) {
+        mvaddch(y, box_start, '|');
+        mvaddch(y, box_start + box_width - 1, '|');
+    }
+    mvprintw(center_y + 2, box_start, "+%s+", std::string(box_width - 2, '-').c_str());
+    attroff(COLOR_PAIR(4) | A_DIM);
+    
+    attron(COLOR_PAIR(1) | A_BOLD);
+    mvprintw(center_y - 1, box_start + 2, "Conectar a:");
+    attroff(COLOR_PAIR(1) | A_BOLD);
+    mvprintw(center_y - 1, box_start + 14, "%s", pending_network_.ssid.c_str());
+    
+    mvprintw(center_y, box_start + 2, "Password: %s", std::string(password_input_.length(), '*').c_str());
+    if (!password_input_.empty()) {
+        curs_set(1);
+    }
+    
+    attron(A_DIM);
+    mvprintw(center_y + 1, box_start + 2, "ENTER: Conectar  ESC: Cancelar");
+    attroff(A_DIM);
     
     render_border();
 }
 
 void WifiTUI::render_connecting() {
     int left = margin_left_;
+    int right = screen_cols_ - margin_right_ - 1;
     int center_y = (screen_rows_ - margin_top_ - margin_bottom_) / 2 + margin_top_;
     
     render_header();
     
-    attron(COLOR_PAIR(2) | A_DIM);
-    mvprintw(center_y, (left + screen_cols_ - margin_right_) / 2 - 5, "Conectando...");
-    attroff(COLOR_PAIR(2) | A_DIM);
+    int box_width = 20;
+    int box_start = (left + right - box_width) / 2;
+    
+    attron(COLOR_PAIR(4) | A_DIM);
+    mvprintw(center_y - 1, box_start, "+%s+", std::string(box_width - 2, '-').c_str());
+    for (int y = center_y; y <= center_y; y++) {
+        mvaddch(y, box_start, '|');
+        mvaddch(y, box_start + box_width - 1, '|');
+    }
+    mvprintw(center_y + 1, box_start, "+%s+", std::string(box_width - 2, '-').c_str());
+    attroff(COLOR_PAIR(4) | A_DIM);
+    
+    attron(COLOR_PAIR(2));
+    mvprintw(center_y, box_start + 2, "Conectando...");
+    attroff(COLOR_PAIR(2));
     
     render_border();
 }
