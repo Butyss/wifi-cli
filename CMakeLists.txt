@@ -4,18 +4,20 @@ project(wifi-cli C CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(GLIB REQUIRED glib-2.0 gio-2.0 gobject-2.0)
+
 add_executable(wifi-cli
     src/main.cpp
-    src/WpaClient.cpp
     src/WifiManager.cpp
     src/Network.cpp
-    wpa_supplicant/wpa_ctrl.c
-    wpa_supplicant/os_unix.c
+    src/WifiTUI.cpp
+    src/NmClient.cpp
 )
 
 target_include_directories(wifi-cli PRIVATE
     ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/wpa_supplicant
+    ${GLIB_INCLUDE_DIRS}
 )
 
-target_link_libraries(wifi-cli rt pthread)
+target_link_libraries(wifi-cli rt pthread ncurses ${GLIB_LIBRARIES})

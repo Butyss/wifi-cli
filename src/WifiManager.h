@@ -1,19 +1,20 @@
 #ifndef WIFI_MANAGER_H
 #define WIFI_MANAGER_H
 
-#include "WpaClient.h"
+#include "NmClient.h"
 #include "Network.h"
 #include <string>
 #include <vector>
 #include <optional>
-#include <functional>
+#include <memory>
 
 class WifiManager {
 public:
-    WifiManager();
+    static WifiManager& get_instance();
+    
     ~WifiManager();
 
-    bool initialize(const std::string& iface = "wlan0");
+    bool initialize();
     void cleanup();
 
     std::vector<Network> scan();
@@ -24,31 +25,20 @@ public:
     std::optional<int> connect(const ConnectionConfig& config);
     bool disconnect();
     bool remove_network(const std::string& network_id);
-    bool enable_network(const std::string& network_id);
-    bool disable_network(const std::string& network_id);
 
     ConnectionStatus get_status();
     std::string get_password(const std::string& network_id);
 
-    void set_event_callback(std::function<void(const std::string&)> callback);
-    bool process_events(int timeout_ms = 100);
-    void start_monitoring();
-    void stop_monitoring();
-
-    bool is_connected_to_wpa() const { return wpa_client_.is_connected(); }
+    bool is_connected_to_nm() const { return nm_client_ && nm_client_->init(); }
 
 private:
-    std::optional<int> add_network();
-    bool set_network_string(int network_id, const std::string& key, const std::string& value);
-    bool set_network_password(int network_id, const std::string& password, SecurityType type);
-    bool enable_network_by_id(int network_id);
-    bool wait_for_event(const std::string& expected, int timeout_ms = 15000);
-    std::string parse_ssid_from_bss(const std::string& bssid);
-    std::vector<SecurityType> parse_security_types(const std::string& flags);
+    WifiManager();
+    
+    Network ap_to_network(const NmCli::AccessPoint& ap);
+    SecurityType flags_to_security(uint32_t flags);
 
-    WpaClient wpa_client_;
-    std::function<void(const std::string&)> event_callback_;
-    bool monitoring_;
+    bool initialized_;
+    std::unique_ptr<NmCli::NmClient> nm_client_;
 };
 
 #endif
