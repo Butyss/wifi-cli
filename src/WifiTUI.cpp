@@ -324,17 +324,11 @@ void WifiTUI::render_network_info() {
     int content_width = right - left - 1;
     
     int box_width = std::min(40, content_width - 4);
-    int box_height = 10;
+    int box_height = 9;
     int start_y = (screen_rows_ - margin_top_ - margin_bottom_ - box_height) / 2 + margin_top_;
     int start_x = (left + right - box_width) / 2;
     
-    attron(COLOR_PAIR(5));
-    for (int y = start_y; y < start_y + box_height; y++) {
-        for (int x = start_x; x < start_x + box_width; x++) {
-            mvaddch(y, x, ' ');
-        }
-    }
-    
+    attron(COLOR_PAIR(4) | A_DIM);
     mvaddch(start_y, start_x, '+');
     mvaddch(start_y, start_x + box_width - 1, '+');
     mvaddch(start_y + box_height - 1, start_x, '+');
@@ -347,23 +341,21 @@ void WifiTUI::render_network_info() {
         mvaddch(y, start_x, '|');
         mvaddch(y, start_x + box_width - 1, '|');
     }
+    attroff(COLOR_PAIR(4) | A_DIM);
     
-    attron(A_BOLD);
+    attron(COLOR_PAIR(1) | A_BOLD);
     mvprintw(start_y, start_x + 2, "Info de Red");
-    attroff(A_BOLD);
+    attroff(COLOR_PAIR(1) | A_BOLD);
     
     mvprintw(start_y + 2, start_x + 2, "SSID: %s", info_network_.ssid.c_str());
     mvprintw(start_y + 3, start_x + 2, "BSSID: %s", info_network_.bssid.c_str());
     mvprintw(start_y + 4, start_x + 2, "Senal: %d dBm", info_network_.signal_strength);
     mvprintw(start_y + 5, start_x + 2, "Frecuencia: %d MHz", info_network_.frequency);
     mvprintw(start_y + 6, start_x + 2, "Seguridad: %s", info_network_.get_security_string().c_str());
-    mvprintw(start_y + 7, start_x + 2, "Guardada: %s", info_saved_ ? "Si" : "No");
     
-    attroff(COLOR_PAIR(5));
-    
-    attron(A_REVERSE);
+    attron(A_DIM);
     mvprintw(start_y + box_height - 2, start_x + 2, "Q/I: Cerrar");
-    attroff(A_REVERSE);
+    attroff(A_DIM);
 }
 
 TUIEvent WifiTUI::handle_input(int ch) {
