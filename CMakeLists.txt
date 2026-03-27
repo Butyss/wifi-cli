@@ -21,3 +21,6 @@ target_include_directories(wifi-cli PRIVATE
 )
 
 target_link_libraries(wifi-cli rt pthread ncurses ${GLIB_LIBRARIES})
+
+install(TARGETS wifi-cli DESTINATION bin)
+install(FILES LICENSE DESTINATION share/wifi-cli)
