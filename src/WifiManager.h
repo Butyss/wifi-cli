@@ -27,6 +27,7 @@ public:
     bool remove_network(const std::string& network_id);
 
     ConnectionStatus get_status();
+    std::string get_current_connection_name();
     std::string get_password(const std::string& network_id);
 
     bool is_connected_to_nm() const { return nm_client_ && nm_client_->init(); }

@@ -86,6 +86,8 @@ private:
     
     std::string status_message_;
     int status_msg_frames_;
+    
+    int connecting_frames_;
 };
 
 #endif

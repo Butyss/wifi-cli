@@ -35,16 +35,19 @@ std::vector<Network> WifiManager::scan() {
     std::vector<Network> networks;
 
     auto aps = nm_client_->get_access_points(true);
-    auto wifi_dev = nm_client_->get_wifi_device();
+    std::string connected_name = get_current_connection_name();
 
     for (const auto& ap : aps) {
         Network net = ap_to_network(ap);
 
-        if (wifi_dev && wifi_dev->connected) {
-            if (net.ssid == wifi_dev->connection_name) {
-                net.is_connected = true;
-                net.is_current = true;
-            }
+        std::string net_ssid = net.ssid;
+        while (!net_ssid.empty() && net_ssid.back() == ' ') {
+            net_ssid.pop_back();
+        }
+
+        if (!connected_name.empty() && net_ssid == connected_name) {
+            net.is_connected = true;
+            net.is_current = true;
         }
 
         networks.push_back(net);
@@ -110,7 +113,8 @@ bool WifiManager::disconnect() {
 }
 
 bool WifiManager::remove_network(const std::string& network_id) {
-    return system(("nmcli connection delete '" + network_id + "'").c_str()) == 0;
+    std::string cmd = "nmcli connection delete '" + network_id + "' > /dev/null 2>&1";
+    return system(cmd.c_str()) == 0;
 }
 
 ConnectionStatus WifiManager::get_status() {
@@ -118,28 +122,55 @@ ConnectionStatus WifiManager::get_status() {
     status.state = ConnectionState::UNKNOWN;
     status.signal = 0;
 
-    auto dev = nm_client_->get_wifi_device();
-    if (!dev) {
-        return status;
-    }
-
-    if (dev->connected) {
+    std::string connected_name = get_current_connection_name();
+    
+    if (!connected_name.empty()) {
         status.state = ConnectionState::COMPLETED;
-        status.ssid = dev->connection_name;
+        status.ssid = connected_name;
+        
+        auto aps = nm_client_->get_access_points(false);
+        for (const auto& ap : aps) {
+            std::string ap_ssid = ap.ssid;
+            while (!ap_ssid.empty() && ap_ssid.back() == ' ') {
+                ap_ssid.pop_back();
+            }
+            if (connected_name == ap_ssid) {
+                status.signal = ap.strength;
+                status.bssid = ap.bssid;
+                break;
+            }
+        }
     } else {
         status.state = ConnectionState::DISCONNECTED;
     }
 
-    auto aps = nm_client_->get_access_points(false);
-    for (const auto& ap : aps) {
-        if (dev->connection_name == ap.ssid) {
-            status.signal = ap.strength;
-            status.bssid = ap.bssid;
-            break;
+    return status;
+}
+
+std::string WifiManager::get_current_connection_name() {
+    FILE* fp = popen("nmcli -t -f NAME,STATE connection show --active 2>/dev/null", "r");
+    if (!fp) return "";
+    
+    char line[256];
+    while (fgets(line, sizeof(line), fp)) {
+        std::string s = line;
+        size_t colon = s.find(':');
+        if (colon != std::string::npos) {
+            std::string name = s.substr(0, colon);
+            std::string state = s.substr(colon + 1);
+            
+            while (!name.empty() && (name.back() == '\n' || name.back() == '\r')) {
+                name.pop_back();
+            }
+            
+            if (state.find("activated") != std::string::npos) {
+                pclose(fp);
+                return name;
+            }
         }
     }
-
-    return status;
+    pclose(fp);
+    return "";
 }
 
 std::string WifiManager::get_password(const std::string& network_id) {

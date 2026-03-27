@@ -3,6 +3,9 @@
 #include <gio/gio.h>
 #include <cstring>
 #include <cstdlib>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <fcntl.h>
 
 namespace NmCli {
 
@@ -165,12 +168,20 @@ std::optional<WifiDevice> NmClient::get_wifi_device() {
             dev.path = dev_path;
             dev.iface = get_string_property(NM_SERVICE, dev_path, NM_DEVICE_IFACE, "Interface");
             dev.connected = get_int_property(NM_SERVICE, dev_path, NM_DEVICE_IFACE, "State") == 100;
-            dev.connection_path = get_string_property(NM_SERVICE, dev_path, NM_ACTIVE_IFACE, "Connection");
             
-            if (!dev.connection_path.empty() && dev.connection_path != "/") {
-                dev.connection_name = get_string_property(NM_SERVICE, dev.connection_path,
-                                                            NM_ACTIVE_IFACE, "Id");
+            auto active_conns = get_object_paths(NM_SERVICE, "/org/freedesktop/NetworkManager",
+                                                 NM_SERVICE, "ActiveConnections");
+            for (const auto& ac_path : active_conns) {
+                std::string ac_dev = get_string_property(NM_SERVICE, ac_path, NM_ACTIVE_IFACE, "Devices");
+                std::string ac_id = get_string_property(NM_SERVICE, ac_path, NM_ACTIVE_IFACE, "Id");
+                
+                if (ac_dev.find(dev.iface) != std::string::npos && !ac_id.empty()) {
+                    dev.connection_path = ac_path;
+                    dev.connection_name = ac_id;
+                    break;
+                }
             }
+            
             return dev;
         }
     }
@@ -314,9 +325,21 @@ bool NmClient::connect_with_password(const std::string& ssid, const std::string&
     auto aps = get_access_points(false);
     for (const auto& ap : aps) {
         if (ap.ssid == ssid) {
-            std::string cmd = "nmcli d wifi connect \"" + ssid + "\" password \"" + password + "\" ifname wlan0";
-            int ret = system(cmd.c_str());
-            return (ret == 0);
+            if (fork() == 0) {
+                if (fork() == 0) {
+                    int fd = open("/dev/null", O_RDWR);
+                    dup2(fd, STDOUT_FILENO);
+                    dup2(fd, STDERR_FILENO);
+                    if (fd > 2) close(fd);
+                    setsid();
+                    execlp("nmcli", "nmcli", "d", "wifi", "connect", ssid.c_str(), 
+                           "password", password.c_str(), "ifname", "wlan0", (char*)nullptr);
+                    _exit(1);
+                }
+                _exit(0);
+            }
+            wait(nullptr);
+            return true;
         }
     }
     return false;

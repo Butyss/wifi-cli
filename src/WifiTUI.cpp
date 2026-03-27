@@ -16,6 +16,7 @@ WifiTUI::WifiTUI()
     , last_scan_time_(std::chrono::steady_clock::now())
     , status_message_()
     , status_msg_frames_(0)
+    , connecting_frames_(0)
 {
     config_.auto_scan = true;
     config_.scan_interval_ms = 7000;
@@ -61,6 +62,9 @@ void WifiTUI::run() {
     
     networks_ = wm_.scan();
     last_scan_time_ = std::chrono::steady_clock::now();
+    connecting_frames_ = 0;
+    
+    timeout(100);
     
     int ch;
     while (running_) {
@@ -72,6 +76,15 @@ void WifiTUI::run() {
             TUIEvent event = handle_input(ch);
             if (event == TUIEvent::QUIT) {
                 break;
+            }
+        }
+        
+        if (state_ == TUIState::CONNECTING) {
+            connecting_frames_++;
+            if (connecting_frames_ > 30) {
+                networks_ = wm_.scan();
+                state_ = TUIState::NETWORKS_LIST;
+                connecting_frames_ = 0;
             }
         }
         
@@ -171,9 +184,30 @@ void WifiTUI::render_networks() {
     }
     
     if (status_msg_frames_ > 0) {
-        attron(COLOR_PAIR(3) | A_BOLD);
-        mvprintw(screen_rows_ / 2, screen_cols_ / 2 - status_message_.length() / 2, "%s", status_message_.c_str());
-        attroff(COLOR_PAIR(3) | A_BOLD);
+        int msg_len = status_message_.length() + 4;
+        int box_y = screen_rows_ / 2 - 1;
+        int box_x = screen_cols_ / 2 - msg_len / 2;
+        
+        attron(COLOR_PAIR(1));
+        mvaddch(box_y, box_x, '+');
+        for (int i = 1; i < msg_len - 1; i++) mvaddch(box_y, box_x + i, '-');
+        mvaddch(box_y, box_x + msg_len - 1, '+');
+        
+        for (int y = box_y + 1; y < box_y + 3; y++) {
+            mvaddch(y, box_x, '|');
+            for (int i = 1; i < msg_len - 1; i++) mvaddch(y, box_x + i, ' ');
+            mvaddch(y, box_x + msg_len - 1, '|');
+        }
+        
+        mvaddch(box_y + 3, box_x, '+');
+        for (int i = 1; i < msg_len - 1; i++) mvaddch(box_y + 3, box_x + i, '-');
+        mvaddch(box_y + 3, box_x + msg_len - 1, '+');
+        attroff(COLOR_PAIR(1));
+        
+        attron(COLOR_PAIR(2) | A_BOLD);
+        mvprintw(box_y + 1, box_x + 2, "%s", status_message_.c_str());
+        attroff(COLOR_PAIR(2) | A_BOLD);
+        
         status_msg_frames_--;
     }
     
@@ -356,7 +390,7 @@ TUIEvent WifiTUI::handle_input(int ch) {
                 case 'r':
                 case 'R':
                     last_scan_time_ = std::chrono::steady_clock::now();
-                    scan_msg_frames_ = 3;
+                    scan_msg_frames_ = 75;
                     wm_.trigger_scan();
                     networks_ = wm_.scan();
                     break;
@@ -403,8 +437,12 @@ TUIEvent WifiTUI::handle_input(int ch) {
                                 if (wm_.remove_network(s.id)) {
                                     status_message_ = "[ Red Olvidada ]";
                                     status_msg_frames_ = 20;
-                                    last_scan_time_ = std::chrono::steady_clock::now();
+                                    
+                                    wm_.trigger_scan();
                                     networks_ = wm_.scan();
+                                    
+                                    selected_index_ = 0;
+                                    scroll_offset_ = 0;
                                 }
                                 break;
                             }
@@ -430,8 +468,30 @@ TUIEvent WifiTUI::handle_input(int ch) {
             break;
         
         case TUIState::CONNECTING:
-        case TUIState::PASSWORD_INPUT:
             break;
+
+        case TUIState::PASSWORD_INPUT: {
+            if (ch == 27) { // ESC
+                state_ = TUIState::NETWORKS_LIST;
+                password_input_.clear();
+            } else if (ch == '\n' || ch == KEY_ENTER) {
+                ConnectionConfig config;
+                config.ssid = pending_network_.ssid;
+                config.password = password_input_;
+                config.security_type = pending_network_.security_types[0];
+                config.is_enterprise = false;
+                wm_.connect(config);
+                state_ = TUIState::CONNECTING;
+                password_input_.clear();
+            } else if (ch == KEY_BACKSPACE || ch == 127) {
+                if (!password_input_.empty()) {
+                    password_input_.pop_back();
+                }
+            } else if (ch >= 32 && ch <= 126) {
+                password_input_ += static_cast<char>(ch);
+            }
+            break;
+        }
             
         case TUIState::ERROR:
             state_ = TUIState::NETWORKS_LIST;
