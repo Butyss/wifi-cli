@@ -95,6 +95,10 @@ void WifiTUI::run() {
     }
     previous_networks_ = networks_;
     last_scan_time_ = std::chrono::steady_clock::now();
+    last_status_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+    cached_status_ = wm_.get_status();
+    last_ping_time_ = std::chrono::steady_clock::now() - std::chrono::seconds(15);
+    cached_ping_ = -1;
     connecting_frames_ = 0;
     
     timeout(100);
